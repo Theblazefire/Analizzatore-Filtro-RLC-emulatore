@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emulatore Filtri del Secondo Ordine</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #f4f4f9;
+            --panel-bg: #ffffff;
+            --text-color: #333333;
+            --border-color: #dddddd;
+            --primary-color: #007bff;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 1000px;
+            width: 100%;
+            background: var(--panel-bg);
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.8em;
+            margin-bottom: 20px;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        .control-group {
+            flex: 1;
+            min-width: 250px;
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        .val-display {
+            font-family: monospace;
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 4px;
+            float: right;
+        }
+        select {
+            padding: 8px;
+            font-size: 1em;
+            border-radius: 5px;
+            border: 1px solid var(--border-color);
+        }
+        .results {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+        }
+        .result-box {
+            background: #fff;
+            padding: 10px;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+        .result-box span {
+            display: block;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: var(--primary-color);
+            margin-top: 5px;
+        }
+        .chart-container {
+            width: 100%;
+            height: 400px;
+        }
+        .classification {
+            grid-column: 1 / -1;
+            text-align: center;
+            font-size: 1.1em;
+            font-weight: bold;
+            padding: 10px;
+            color: #fff;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Emulatore Filtri del Secondo Ordine</h1>
+    
+    <div class="controls">
+        <div class="control-group">
+            <label for="filterType">Tipo di Filtro:</label>
+            <select id="filterType">
+                <option value="passabanda">Passa-Banda</option>
+                <option value="passabasso">Passa-Basso</option>
+            </select>
+        </div>
+        
+        <div class="control-group">
+            <label for="res">Resistenza (R) <span class="val-display"><span id="valR">10</span> Ω</span></label>
+            <input type="range" id="res" min="0.1" max="200" step="0.1" value="10">
+        </div>
+
+        <div class="control-group">
+            <label for="ind">Induttanza (L) <span class="val-display"><span id="valL">50</span> mH</span></label>
+            <input type="range" id="ind" min="1" max="500" step="1" value="50">
+        </div>
+
+        <div class="control-group">
+            <label for="cap">Capacità (C) <span class="val-display"><span id="valC">10</span> µF</span></label>
+            <input type="range" id="cap" min="0.01" max="100" step="0.01" value="10">
+        </div>
+    </div>
+
+    <div class="results">
+        <div class="result-box">Pulsazione &omega;₀ <span><span id="outW0">0</span> rad/s</span></div>
+        <div class="result-box">Frequenza f₀ <span><span id="outF0">0</span> Hz</span></div>
+        <div class="result-box">Banda (B) <span><span id="outB">0</span> rad/s</span></div>
+        <div class="result-box">Fattore di Merito (Q) <span><span id="outQ">0</span></span></div>
+        <div class="result-box">Smorzamento (&zeta;) <span><span id="outZ">0</span></span></div>
+        <div id="classBanner" class="classification">Classificazione</div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="bodeChart"></canvas>
+    </div>
+</div>
+
+<script>
+    // Inizializzazione del grafico Chart.js
+    const ctx = document.getElementById('bodeChart').getContext('2d');
+    let bodeChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Modulo |H(jω)| in dB',
+                data: [],
+                borderColor: '#007bff',
+                backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                borderWidth: 2,
+                pointRadius: 0,
+                fill: true,
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'logarithmic',
+                    title: { display: true, text: 'Frequenza (Hz)' },
+                    grid: { color: '#e0e0e0' }
+                },
+                y: {
+                    title: { display: true, text: 'Ampiezza (dB)' },
+                    grid: { color: '#e0e0e0' }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `Ampiezza: ${ctx.parsed.y.toFixed(2)} dB`
+                    }
+                }
+            }
+        }
+    });
+
+    // Elementi del DOM
+    const inputs = {
+        type: document.getElementById('filterType'),
+        r: document.getElementById('res'),
+        l: document.getElementById('ind'),
+        c: document.getElementById('cap')
+    };
+    
+    const displays = {
+        r: document.getElementById('valR'),
+        l: document.getElementById('valL'),
+        c: document.getElementById('valC')
+    };
+
+    const outputs = {
+        w0: document.getElementById('outW0'),
+        f0: document.getElementById('outF0'),
+        b: document.getElementById('outB'),
+        q: document.getElementById('outQ'),
+        z: document.getElementById('outZ'),
+        banner: document.getElementById('classBanner')
+    };
+
+    // Funzione principale di calcolo e aggiornamento
+    function updateSimulation() {
+        // 1. Lettura dei valori
+        const R = parseFloat(inputs.r.value);
+        const L_mH = parseFloat(inputs.l.value);
+        const C_uF = parseFloat(inputs.c.value);
+        const type = inputs.type.value;
+
+        // Aggiornamento etichette input
+        displays.r.textContent = R;
+        displays.l.textContent = L_mH;
+        displays.c.textContent = C_uF;
+
+        // Conversioni in unità base (Henries e Farads)
+        const L = L_mH * 1e-3;
+        const C = C_uF * 1e-6;
+
+        // 2. Calcoli Fisici/Matematici
+        const w0 = 1 / Math.sqrt(L * C);
+        const f0 = w0 / (2 * Math.PI);
+        const B = R / L;
+        const Q = w0 / B;
+        const zeta = 1 / (2 * Q);
+
+        // Aggiornamento output testuali
+        outputs.w0.textContent = w0.toFixed(1);
+        outputs.f0.textContent = f0.toFixed(1);
+        outputs.b.textContent = B.toFixed(1);
+        outputs.q.textContent = Q.toFixed(3);
+        outputs.z.textContent = zeta.toFixed(3);
+
+        // 3. Classificazione del Filtro
+        let classText = "";
+        let classColor = "";
+        
+        if (Math.abs(zeta - 0.707) < 0.05) {
+            classText = "Risposta Massimamente Piatta (Butterworth)";
+            classColor = "#28a745"; // Verde
+        } else if (Math.abs(zeta - 0.577) < 0.05) {
+            classText = "Risposta a Fase Lineare (Bessel)";
+            classColor = "#17a2b8"; // Ciano
+        } else if (zeta < 0.707) {
+            classText = "Sottosmorzato (Transizione Rapida / Chebyshev)";
+            classColor = "#dc3545"; // Rosso
+        } else if (Math.abs(zeta - 1) < 0.05) {
+            classText = "Smorzamento Critico";
+            classColor = "#ffc107"; // Giallo
+            outputs.banner.style.color = "#333";
+        } else {
+            classText = "Sovrasmorzato (Risposta Lenta)";
+            classColor = "#6c757d"; // Grigio
+        }
+        
+        outputs.banner.textContent = classText;
+        outputs.banner.style.backgroundColor = classColor;
+        if (Math.abs(zeta - 1) >= 0.05) outputs.banner.style.color = "#fff";
+
+        // 4. Generazione Dati per il Grafico
+        const f_start = f0 / 10;
+        const f_end = f0 * 10;
+        const numPoints = 200;
+        const freqs = [];
+        const magnitudes = [];
+
+        // Scala logaritmica per l'asse X
+        const logStart = Math.log10(f_start);
+        const logEnd = Math.log10(f_end);
+        const step = (logEnd - logStart) / (numPoints - 1);
+
+        for (let i = 0; i < numPoints; i++) {
+            const f = Math.pow(10, logStart + i * step);
+            const w = 2 * Math.PI * f;
+            freqs.push(f.toFixed(1));
+
+            // Calcolo H(jω) in base al tipo di filtro
+            let mag;
+            const denominator = Math.sqrt(Math.pow(w0*w0 - w*w, 2) + Math.pow(w * B, 2));
+            
+            if (type === 'passabanda') {
+                mag = (w * B) / denominator;
+            } else { // passabasso
+                mag = (w0 * w0) / denominator;
+            }
+
+            // Converti in dB (impedendo log(0))
+            const dB = mag > 1e-10 ? 20 * Math.log10(mag) : -100;
+            magnitudes.push(dB);
+        }
+
+        // Aggiorna il grafico
+        bodeChart.data.labels = freqs;
+        bodeChart.data.datasets[0].data = magnitudes;
+        bodeChart.update();
+    }
+
+    // Aggiungi gli event listener a tutti gli input per aggiornare in tempo reale
+    Object.values(inputs).forEach(input => {
+        input.addEventListener('input', updateSimulation);
+    });
+
+    // Prima esecuzione all'avvio
+    updateSimulation();
+</script>
+
+</body>
+</html>
